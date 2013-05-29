@@ -13,7 +13,6 @@
 
 #include <stdio.h>
 #include <assert.h>
-/*blahbalbha*/
 
 #include "sr_if.h"
 #include "sr_rt.h"
@@ -66,6 +65,26 @@ void sr_init(struct sr_instance* sr)
  *
  *---------------------------------------------------------------------*/
 
+uint32_t resolve_rt(struct sr_instance* sr, uint32_t dest_ip)
+{
+  struct sr_rt* routing_entry = sr->routing_table;
+  int gateway = -1;
+  int long_match = -2147483648;
+  while(routing_entry != NULL)
+  {
+    if((dest_ip & routing_entry->mask.s_addr) == routing_entry->dest.s_addr)
+    {
+      if((int) ntohl(routing_entry->mask.s_addr) > long_match)
+      {
+        gateway = routing_entry->gw.s_addr;
+        long_match = ntohl(routing_entry->mask.s_addr);
+      }
+    }
+    routing_entry = routing_entry->next;
+  }
+  return gateway;
+}
+
 void sr_handlepacket(struct sr_instance* sr,
         uint8_t * packet/* lent */,
         unsigned int len,
@@ -93,10 +112,52 @@ void sr_handlepacket(struct sr_instance* sr,
     if(cksum(ip_head, ip_head->ip_hl*4) == 65535)
     {
       printf("IP CHECKSUM PASSED\n");
+      if(sr_get_interface(sr, interface)->ip == ip_head->ip_dst)
+      {
+        printf("HEADED TO ROUTER\n");
+        if(ip_head->ip_p != ip_protocol_icmp)
+        {
+          /*ICMP PORT UNREACHABLE*/
+          return;
+        }
+      }
+      else
+      {
+        printf("HEADED OUT OF:\n");
+        ip_head->ip_ttl--;
+        ip_head->ip_sum = 0;
+        ip_head->ip_sum = cksum(ip_head, ip_head->ip_hl*4);
+        if(ip_head->ip_ttl == 0)
+        {
+          /*ICMP TIME EXCEEDED*/
+          return;
+        }
+        
+        int gateway = resolve_rt(sr, ip_head->ip_dst);
+        if(gateway ==  -1)
+        {
+          printf("\nNETWORK UNREACHABLE\n");
+          /*ICMP NETWORK UNREACHABLE*/
+          return;
+        }
+        print_addr_ip_int(ntohl(gateway));
+        struct sr_arpentry* mapping = sr_arpcache_lookup(&sr->cache, gateway);
+        if(mapping == NULL)
+        {
+          printf("MAPPING WAS NULL. QUEUEING REQUEST.\n");
+          sr_arpcache_queuereq(&sr->cache, gateway, packet, len, interface);
+        } 
+        else
+        {
+          return;
+        }
+       
+      }
     }
     else 
     {
       printf("IP CHECKSUM FAILED\n");
+      return;
     }
     printf("--------\n");  
   }

@@ -20,6 +20,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
 	   
             int eth_head_len = sizeof(sr_ethernet_hdr_t);
 	    int ip_head_len = sizeof(sr_ip_hdr_t);
+<<<<<<< HEAD
 	    uint8_t *icmp_message = calloc(eth_head_len + ip_head_len + sizeof(sr_icmp_t3_hdr_t), sizeof(uint8_t));
 	    sr_ethernet_hdr_t * eth_head_icmp = (sr_ethernet_hdr_t*) icmp_message;
 	    sr_ip_hdr_t * ip_head_icmp = (sr_ip_hdr_t*)(icmp_message + eth_head_len);
@@ -54,6 +55,13 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
 	    
              
 	    sr_arpreq_destroy(&(sr->cache), request);
+=======
+	    sr_ethernet_hdr_t* eth_head = (sr_ethernet_hdr_t*) (request->packets);	    	    
+	    sr_ip_hdr_t* ip_head = (sr_ip_hdr_t *) (request->packets + eth_head_len);
+	     	    
+/*send icmp host unreachable to source addr of all pkts waiting */
+	    sr_arpreq_destroy(&sr->cache, request);
+>>>>>>> b2f6edbfb37ecd64e9574309102a1ca5c4549c62
 	}
 	else{
 /*	    ip addresses are in little endian make sure to print them
@@ -82,7 +90,11 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
 	current = nextSav;
     }
     /*for each request on sr->cache.requests
+<<<<<<< HEAD
 	handle_arpreq */
+=======
+	handle_arpreq*/
+>>>>>>> b2f6edbfb37ecd64e9574309102a1ca5c4549c62
 }
 
 /* You should not need to touch the rest of this code. */

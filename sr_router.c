@@ -85,6 +85,55 @@ uint32_t resolve_rt(struct sr_instance* sr, uint32_t dest_ip)
   return gateway;
 }
 
+enum icmp_type {
+  echo_reply_type = 0x00,
+  echo_request_type = 0x08,
+  dest_unreachable = 0x03,
+  time_exceeded = 0x0B,
+};
+
+enum icmp_code {
+  echo_reply_code = 0x00,
+  echo_request_code = 0x00,
+  port_unreachable = 0x03,
+  ttl_expired = 0x00,
+  net_unreachable = 0x00,
+  host_unreachable = 0x01,
+};
+
+uint8_t* send_icmp(uint8_t code, uint8_t type, uint32_t source_ip, uint8_t * source_mac, uint32_t dest_ip, uint8_t* dest_mac)
+{
+    int eth_len = sizeof(sr_ethernet_hdr_t);
+    int ip_len = sizeof(sr_ip_hdr_t);
+    int icmp_len = sizeof(sr_icmp_hdr_t);
+    uint8_t * icmp = calloc(eth_len + ip_len + icmp_len, sizeof(uint8_t));
+    sr_ethernet_hdr_t * eth_head = (sr_ethernet_hdr_t *) icmp;
+    sr_ip_hdr_t * ip_head = (sr_ip_hdr_t *) (icmp + eth_len);
+    sr_icmp_hdr_t * icmp_head = (sr_icmp_hdr_t *) (icmp + eth_len + ip_len);
+
+    eth_head->ether_type = ntohs(ethertype_ip);
+    memcpy(eth_head->ether_dhost, dest_mac, ETHER_ADDR_LEN);
+    memcpy(eth_head->ether_shost, source_mac, ETHER_ADDR_LEN);
+
+    ip_head->ip_hl = 5;
+    ip_head->ip_v = 4;
+    ip_head->ip_tos = htonl(0);
+    ip_head->ip_len = htons(ip_len + icmp_len);
+    ip_head->ip_id = 0;
+    ip_head->ip_off = 0;
+    ip_head->ip_ttl = 64;
+    ip_head->ip_p = 0x01;
+    ip_head->ip_src = source_ip;    
+    ip_head->ip_dst = dest_ip; 
+    ip_head->ip_sum = cksum(ip_head, 20);    
+
+    icmp_head->icmp_type = type;
+    icmp_head->icmp_code = code;
+    icmp_head->icmp_sum = cksum(icmp_head, icmp_len);
+  
+    return icmp;   
+}
+
 void sr_handlepacket(struct sr_instance* sr,
         uint8_t * packet/* lent */,
         unsigned int len,
@@ -94,7 +143,7 @@ void sr_handlepacket(struct sr_instance* sr,
   assert(sr);
   assert(packet);
   assert(interface);
-
+  
   if(ethertype(packet) == ethertype_ip)
   {
     printf("--------\n");
@@ -120,6 +169,30 @@ void sr_handlepacket(struct sr_instance* sr,
           /*ICMP PORT UNREACHABLE*/
           return;
         }
+        else
+	{
+          /*print_hdrs(packet, len);*/
+	  sr_icmp_hdr_t* icmp_head = (sr_icmp_hdr_t *) (packet + eth_head_len + sizeof(sr_ip_hdr_t));
+	  if(icmp_head->icmp_type == echo_request_type && icmp_head->icmp_code == echo_request_code)
+	  {
+  	    uint32_t src_ip = ip_head->ip_dst;
+            uint8_t * src_mac = calloc(ETHER_ADDR_LEN, sizeof(uint8_t));
+            memcpy(src_mac, eth_head->ether_dhost, ETHER_ADDR_LEN);
+
+            ip_head->ip_dst = ip_head->ip_src; 
+            ip_head->ip_src = src_ip;
+            memcpy(eth_head->ether_dhost, eth_head->ether_shost, ETHER_ADDR_LEN);
+	    memcpy(eth_head->ether_shost, src_mac, ETHER_ADDR_LEN);
+            ip_head->ip_sum = 0;
+            ip_head->ip_sum = cksum(ip_head, 20);
+            icmp_head->icmp_type = echo_reply_type;
+            icmp_head->icmp_code = echo_reply_code;
+            icmp_head->icmp_sum = 0;
+            icmp_head->icmp_sum = cksum(icmp_head, ip_head->ip_len - 24);
+            sr_send_packet(sr, packet, len, interface);
+            /*print_hdrs(packet, len);*/
+          }  
+	}
       }
       else
       {
@@ -198,23 +271,6 @@ void sr_handlepacket(struct sr_instance* sr,
     print_addr_eth(eth_head->ether_dhost);
     print_addr_ip_int(ntohl(arp_head->ar_tip));
     printf("--------\n");
-    /*print_addr_ip_int(ntohl(arp_head->ar_tip)); */
-    /*sr_arpcache_queuereq(&sr->cache, arp_head->ar_tip, packet, len, interface);*/
-    /*struct sr_arpreq* temp_req = sr->cache.requests;
-    while(temp_req != NULL)
-    {
-      //printf("IP: %d\n", temp_req->sent);
-      struct sr_packet* temp_packets = temp_req->packets;
-      while(temp_packets != NULL)
-      {
-        print_hdrs(temp_packets->buf, temp_packets->len);
-        temp_packets = temp_packets->next;
-      }
-      temp_req = temp_req->next;
-    }*/
-    /*sr_arpcache_dump(&sr->cache);*/
-    /*print_hdr_arp(arp_head);*/
-    /*print_hdrs(packet, len);*/
   }
   /*printf("Ethertype: %d \n", ethertype(packet));*/
   printf("*** -> Received packet of length %d \n",len);

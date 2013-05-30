@@ -11,24 +11,25 @@
 #include "sr_if.h"
 #include "sr_protocol.h"
 
-void handle_arpreq(struct sr_arpreq* request){
+void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
     time_t now;
     time(&now);
     if(difftime(now, request->sent) > 1.0){
 	if(request->times_sent >= 5){
 	    int eth_head_len = sizeof(sr_ethernet_hdr_t);
 	    int ip_head_len = sizeof(sr_ip_hdr_t);
-	    sr_ethernet_hdr* eth_head = (sr_ethernet_hdr_t*) (request.packets);	    	    sr_ip_hdr* ip_head = (sr_ip_hdr_t*) (request.packets + eth_head);
+	    sr_ethernet_hdr_t* eth_head = (sr_ethernet_hdr_t*) (request->packets);	    	    
+	    sr_ip_hdr_t* ip_head = (sr_ip_hdr_t *) (request->packets + eth_head_len);
 	     	    
 /*send icmp host unreachable to source addr of all pkts waiting */
-	    arpreq_destroy(request);
+	    sr_arpreq_destroy(&sr->cache, request);
 	}
 	else{
 /*	    ip addresses are in little endian make sure to print them
 	    send arp request to all interfaces*/
 	    
-	    req->sent = now;
-	    req->times_sent++
+	    request->sent = now;
+	    request->times_sent++;
 	}
     }
 }
@@ -45,12 +46,12 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
     if(!(current = sr->cache.requests)){
 	return;
     }
-    while((nextSav = current.next) != 0){
-	handle_arpreq(current);
+    while((nextSav = current->next) != 0){
+	handle_arpreq(sr, current);
 	current = nextSav;
     }
-    //for each request on sr->cache.requests
-	//handle_arpreq
+    /*for each request on sr->cache.requests
+	handle_arpreq*/
 }
 
 /* You should not need to touch the rest of this code. */

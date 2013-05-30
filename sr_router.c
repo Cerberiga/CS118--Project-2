@@ -118,27 +118,41 @@ void sr_handlepacket(struct sr_instance* sr,
         if(ip_head->ip_p != ip_protocol_icmp)
         {
           /*ICMP PORT UNREACHABLE*/
+          return;
         }
       }
       else
       {
-        printf("HEADED OUT OF THE FOLLOWING GATEWAY:\n");
+        printf("HEADED OUT OF:\n");
         ip_head->ip_ttl--;
         ip_head->ip_sum = 0;
         ip_head->ip_sum = cksum(ip_head, ip_head->ip_hl*4);
         if(ip_head->ip_ttl == 0)
         {
           /*ICMP TIME EXCEEDED*/
+          return;
         }
         
         int gateway = resolve_rt(sr, ip_head->ip_dst);
         if(gateway ==  -1)
         {
-          printf("NETWORK UNREACHABLE\n");
+          printf("\nNETWORK UNREACHABLE\n");
           /*ICMP NETWORK UNREACHABLE*/
+          return;
         }
         print_addr_ip_int(ntohl(gateway));
-     }
+        struct sr_arpentry* mapping = sr_arpcache_lookup(&sr->cache, gateway);
+        if(mapping == NULL)
+        {
+          printf("MAPPING WAS NULL. QUEUEING REQUEST.\n");
+          sr_arpcache_queuereq(&sr->cache, gateway, packet, len, interface);
+        } 
+        else
+        {
+          return;
+        }
+       
+      }
     }
     else 
     {

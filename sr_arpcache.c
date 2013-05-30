@@ -77,6 +77,7 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
     if(!(current = sr->cache.requests)){
 	return;
     }
+
     while((nextSav = current->next) != 0){
 	handle_arpreq(sr, current);
 	current = nextSav;

@@ -12,7 +12,7 @@
 #include "sr_protocol.h"
 
 void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
-    printf("HANDLING ARPREQ\n");
+/*    printf("HANDLING ARPREQ\n");*/
     time_t now;
     time(&now);
     if(difftime(now, request->sent) > 1.0){
@@ -75,11 +75,10 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
 	    /*missing target ip address*/
 	    memcpy(arp_head_request->ar_tha, &floodAddr, ETHER_ADDR_LEN);
             while(iface_pt != 0){
-		print_addr_eth(iface_pt->addr);
 		memcpy(eth_head_request->ether_shost, iface_pt->addr, ETHER_ADDR_LEN);
 		memcpy(arp_head_request->ar_sha, eth_head_request->ether_shost, ETHER_ADDR_LEN);
 		arp_head_request->ar_sip = iface_pt->ip;
-		printf("Sending ARP Request to interface %s\n", iface_pt->name);
+		/*printf("Sending ARP Request to interface %s\n", iface_pt->name);*/
 		sr_send_packet(sr, arp_request, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), iface_pt->name);
 	/*	printf("Sending Succeeded\n"); */
 		iface_pt = iface_pt->next;

@@ -21,34 +21,38 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
         struct sr_packet* current = request->packets;
         while(current != 0){ 
         
-                int eth_head_len = sizeof(sr_ethernet_hdr_t);   
-            int ip_head_len = sizeof(sr_ip_hdr_t);
+       int eth_head_len = sizeof(sr_ethernet_hdr_t);   
+       int ip_head_len = sizeof(sr_ip_hdr_t);
         sr_ethernet_hdr_t* init_eth = (sr_ethernet_hdr_t*) (current->buf);
         sr_ip_hdr_t* init_ip =  (sr_ip_hdr_t*) (current->buf + eth_head_len);
 
-            uint8_t *icmp_message = calloc(eth_head_len + ip_head_len + sizeof(sr_icmp_t3_hdr_t), sizeof(uint8_t));
-            sr_ethernet_hdr_t * eth_head_icmp = (sr_ethernet_hdr_t*) icmp_message;
-            sr_ip_hdr_t * ip_head_icmp = (sr_ip_hdr_t*)(icmp_message + eth_head_len);
-            sr_icmp_t3_hdr_t * icmp_head_icmp = (sr_icmp_t3_hdr_t*)(icmp_message + eth_head_len + ip_head_len);
+       uint8_t *icmp_message = calloc(eth_head_len + ip_head_len + sizeof(sr_icmp_t3_hdr_t), sizeof(uint8_t));
+       sr_ethernet_hdr_t * eth_head_icmp = (sr_ethernet_hdr_t*) icmp_message;
+       sr_ip_hdr_t * ip_head_icmp = (sr_ip_hdr_t*)(icmp_message + eth_head_len);
+       sr_icmp_t3_hdr_t * icmp_head_icmp = (sr_icmp_t3_hdr_t*)(icmp_message + eth_head_len + ip_head_len);
             
         eth_head_icmp->ether_type = ntohs(ethertype_ip);
         memcpy(eth_head_icmp->ether_dhost, init_eth->ether_shost, ETHER_ADDR_LEN);
         memcpy(eth_head_icmp->ether_shost, init_eth->ether_dhost, ETHER_ADDR_LEN);
             
-        /*ip_head_icmp->ip_tos = 5;  reliability?*/
             ip_head_icmp->ip_hl = 5; /*number of 4 byte in the header*/
-            /*ip_head_icmp->ip_id = 0x2345; check this if right*/
-            /*ip_head_icmp->ip_off = 0; check this if right*/
-            ip_head_icmp->ip_ttl = 255; /*big ttl*/
-            ip_head_icmp->ip_p = ntohs(ip_protocol_icmp);
+            ip_head_icmp->ip_v = 4;
+	    ip_head_icmp->ip_tos = htonl(0);
+	    ip_head_icmp->ip_len = htons(ip_head_len + sizeof(sr_icmp_t3_hdr_t));
+	    ip_head_icmp->ip_id = 0;
+	    ip_head_icmp->ip_off = 0;
+            ip_head_icmp->ip_ttl = 64; /*big ttl*/
+            ip_head_icmp->ip_p = 0x01;
             ip_head_icmp->ip_sum = cksum(ip_head_icmp, ip_head_icmp->ip_hl*4);  
         ip_head_icmp->ip_src = sr_get_interface(sr, current->iface)->ip; /* check this */
         ip_head_icmp->ip_dst = init_ip->ip_src;
 
-            icmp_head_icmp->icmp_type = 3;
-            icmp_head_icmp->icmp_code = 1;
+            icmp_head_icmp->icmp_type = 0x03;
+            icmp_head_icmp->icmp_code = 0x01;
             icmp_head_icmp->icmp_sum = cksum(icmp_head_icmp, sizeof(sr_icmp_t3_hdr_t));
-        memcpy(icmp_head_icmp->data, init_ip, sizeof(sr_ip_hdr_t) + 8); 
+        memcpy(icmp_head_icmp->data, init_ip, sizeof(sr_ip_hdr_t)); 
+	memcpy(icmp_head_icmp->data + 20, init_eth + eth_head_len + sizeof(sr_ip_hdr_t), 8);
+
         /* + copy over data if any?*/
 
         printf("--------\n SENDING ICMP PACKET: \n");
@@ -57,7 +61,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
         printf("From: \n");
         print_addr_ip_int(ntohl(ip_head_icmp->ip_src));
         printf("------\n");
-            sr_send_packet(sr, icmp_message, eth_head_len + ip_head_len + sizeof(sr_icmp_t3_hdr_t), current->iface);
+        sr_send_packet(sr, icmp_message, eth_head_len + ip_head_len + sizeof(sr_icmp_t3_hdr_t), current->iface);
         current = current->next;
         }
         /*send icmp host unreachable to source addr of all pkts waiting */

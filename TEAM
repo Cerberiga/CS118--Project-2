@@ -1,0 +1,22 @@
+Team Member 1: UenTao Wang
+
+Worked on sr_router.c
+	- Implemented IP packet processing
+	- Implemented ICMP Port Unreachable and Echo Reply
+	- Implemented longest prefix match 
+	- Implemented IP packet forwardingi
+	- Worked on ARP cache management
+
+
+Team Member 2: Sidney Chan
+
+Worked on sr_router.c
+	- implemented ARP reply packet creation and forwarding
+
+
+Team Member 3: Kevin Lin
+
+Worked on sr_arpcache.c
+	- Implemented ARP request broadcasting
+	- Implemented ICMP Host Unreachable
+	- Worked on ARP cache management 

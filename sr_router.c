@@ -90,6 +90,7 @@ enum icmp_type {
   echo_request_type = 0x08,
   dest_unreachable = 0x03,
   time_exceeded = 0x0B,
+  traceroute_type = 0x1E,
 };
 
 enum icmp_code {
@@ -99,18 +100,19 @@ enum icmp_code {
   ttl_expired = 0x00,
   net_unreachable = 0x00,
   host_unreachable = 0x01,
+  traceroute_code = 0x00,
 };
 
 uint8_t* send_icmp(uint8_t code, uint8_t type, uint32_t source_ip, uint8_t * source_mac, uint32_t dest_ip, uint8_t* dest_mac)
 {
     int eth_len = sizeof(sr_ethernet_hdr_t);
     int ip_len = sizeof(sr_ip_hdr_t);
-    int icmp_len = sizeof(sr_icmp_hdr_t);
+    int icmp_len = sizeof(sr_icmp_t3_hdr_t);
     uint8_t * icmp = calloc(eth_len + ip_len + icmp_len, sizeof(uint8_t));
     sr_ethernet_hdr_t * eth_head = (sr_ethernet_hdr_t *) icmp;
     sr_ip_hdr_t * ip_head = (sr_ip_hdr_t *) (icmp + eth_len);
-    sr_icmp_hdr_t * icmp_head = (sr_icmp_hdr_t *) (icmp + eth_len + ip_len);
-
+    sr_icmp_t3_hdr_t * icmp_head = (sr_icmp_t3_hdr_t *) (icmp + eth_len + ip_len);
+    	
     eth_head->ether_type = ntohs(ethertype_ip);
     memcpy(eth_head->ether_dhost, dest_mac, ETHER_ADDR_LEN);
     memcpy(eth_head->ether_shost, source_mac, ETHER_ADDR_LEN);
@@ -129,9 +131,22 @@ uint8_t* send_icmp(uint8_t code, uint8_t type, uint32_t source_ip, uint8_t * sou
 
     icmp_head->icmp_type = type;
     icmp_head->icmp_code = code;
-    icmp_head->icmp_sum = cksum(icmp_head, icmp_len);
   
     return icmp;   
+}
+
+uint32_t to_router(struct sr_instance* sr, uint32_t dest_ip)
+{
+  struct sr_if* temp = sr->if_list;
+  while(temp != NULL)
+  {
+    if(temp->ip == dest_ip)
+    {
+      return temp->ip;
+    }
+    temp = temp->next;
+  }
+  return -1;
 }
 
 void sr_handlepacket(struct sr_instance* sr,
@@ -143,14 +158,12 @@ void sr_handlepacket(struct sr_instance* sr,
   assert(sr);
   assert(packet);
   assert(interface);
-  
   if(ethertype(packet) == ethertype_ip)
   {
     printf("--------\n");
     int eth_head_len = sizeof(sr_ethernet_hdr_t);
     sr_ethernet_hdr_t * eth_head = (sr_ethernet_hdr_t *) packet;
     sr_ip_hdr_t *ip_head = (sr_ip_hdr_t *) (packet + eth_head_len);
-    /*print_hdrs(packet, len);*/
     printf("IP PACKET RECEIVED\n");
     printf("From: \n");
     print_addr_eth(eth_head->ether_shost);
@@ -161,23 +174,40 @@ void sr_handlepacket(struct sr_instance* sr,
     if(cksum(ip_head, ip_head->ip_hl*4) == 65535)
     {
       printf("IP CHECKSUM PASSED\n");
-      if(sr_get_interface(sr, interface)->ip == ip_head->ip_dst)
-      {
+        uint32_t to_router_ip = to_router(sr, ip_head->ip_dst);
+        if(to_router_ip != -1)
+        {
         printf("HEADED TO ROUTER\n");
         if(ip_head->ip_p != ip_protocol_icmp)
         {
+          uint8_t * icmp_pu = send_icmp(port_unreachable, dest_unreachable, ip_head->ip_dst, eth_head->ether_dhost, ip_head->ip_src, eth_head->ether_shost);
           /*ICMP PORT UNREACHABLE*/
-          return;
+	  sr_ip_hdr_t * temp_ip = (sr_ip_hdr_t*) (icmp_pu + eth_head_len);	
+	  sr_icmp_t3_hdr_t * temp_icmp = (sr_icmp_t3_hdr_t*) (icmp_pu + eth_head_len + sizeof(sr_ip_hdr_t));	
+          
+          memcpy( temp_icmp->data, ip_head, sizeof(sr_ip_hdr_t));
+          memcpy((temp_icmp->data + 20), packet + eth_head_len + sizeof(sr_ip_hdr_t), 8);
+ 	  temp_icmp->icmp_sum = 0;
+          temp_icmp->icmp_sum = cksum(temp_icmp, sizeof(sr_icmp_t3_hdr_t));
+	  icmp_pu[20] = 64;
+          temp_ip->ip_id = 0;
+	  temp_ip->ip_ttl = 64;
+	  temp_ip->ip_sum = 0;
+	  temp_ip->ip_sum = cksum(temp_ip, 20);
+	
+          sr_send_packet(sr, icmp_pu, eth_head_len + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
+          printf("SENDING ICMP PORT UNREACHABLE\n");
+	  return;
         }
         else
 	{
-          /*print_hdrs(packet, len);*/
 	  sr_icmp_hdr_t* icmp_head = (sr_icmp_hdr_t *) (packet + eth_head_len + sizeof(sr_ip_hdr_t));
 	  if(icmp_head->icmp_type == echo_request_type && icmp_head->icmp_code == echo_request_code)
 	  {
   	    uint32_t src_ip = ip_head->ip_dst;
             uint8_t * src_mac = calloc(ETHER_ADDR_LEN, sizeof(uint8_t));
             memcpy(src_mac, eth_head->ether_dhost, ETHER_ADDR_LEN);
+	
 
             ip_head->ip_dst = ip_head->ip_src; 
             ip_head->ip_src = src_ip;
@@ -188,10 +218,11 @@ void sr_handlepacket(struct sr_instance* sr,
             icmp_head->icmp_type = echo_reply_type;
             icmp_head->icmp_code = echo_reply_code;
             icmp_head->icmp_sum = 0;
-            icmp_head->icmp_sum = cksum(icmp_head, ip_head->ip_len - 24);
+            icmp_head->icmp_sum = cksum(icmp_head, htons(ip_head->ip_len) - 20);
             sr_send_packet(sr, packet, len, interface);
-            /*print_hdrs(packet, len);*/
-          }  
+	    printf("SENDING ECHO REPLY\n");
+	
+          }
 	}
       }
       else
@@ -236,10 +267,18 @@ void sr_handlepacket(struct sr_instance* sr,
   }
   else if(ethertype(packet) == ethertype_arp)
   {
-    printf("ARP PACKET RECEIVED\n");
+    printf("--------\n");
+    printf("ARP PACKET RECEIVED\n"); 
     int eth_head_len = sizeof(sr_ethernet_hdr_t);
     sr_ethernet_hdr_t * eth_head = (sr_ethernet_hdr_t *) packet;
     sr_arp_hdr_t *arp_head = (sr_arp_hdr_t *) (packet + eth_head_len);
+    printf("From: \n");
+    print_addr_eth(eth_head->ether_shost);
+    print_addr_ip_int(ntohl(arp_head->ar_sip));
+    printf("To: \n");
+    print_addr_eth(eth_head->ether_dhost);
+    print_addr_ip_int(ntohl(arp_head->ar_tip));
+ 
     if(arp_head->ar_tip == sr_get_interface(sr, interface)->ip)
     {
         uint8_t *arp_reply = calloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), sizeof(uint8_t));
@@ -261,16 +300,11 @@ void sr_handlepacket(struct sr_instance* sr,
 	memcpy(rep_arp_head->ar_tha, arp_head->ar_sha, ETHER_ADDR_LEN);
 	rep_arp_head->ar_tip = arp_head->ar_sip;
         /*print_hdrs(arp_reply, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t));*/
+	printf("SENDING ARP REPLY\n");
 	sr_send_packet(sr, arp_reply, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), interface);
 
     }
-    printf("From: \n");
-    print_addr_eth(eth_head->ether_shost);
-    print_addr_ip_int(ntohl(arp_head->ar_sip));
-    printf("To: \n");
-    print_addr_eth(eth_head->ether_dhost);
-    print_addr_ip_int(ntohl(arp_head->ar_tip));
-    printf("--------\n");
+   printf("--------\n");
   }
   /*printf("Ethertype: %d \n", ethertype(packet));*/
   printf("*** -> Received packet of length %d \n",len);

@@ -72,12 +72,12 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
 	    sr_ethernet_hdr_t * eth_head_request = (sr_ethernet_hdr_t*) arp_request;
 	    sr_arp_hdr_t * arp_head_request = (sr_arp_hdr_t *) (arp_request + sizeof(sr_ethernet_hdr_t)); 
 
-	    eth_head_request->ether_type = ntohs(ethertype_ip); 
+	    eth_head_request->ether_type = ntohs(ethertype_arp); 
 	    unsigned long floodAddr = 0xFFFFFFFFFFFF; 
 	    memcpy(eth_head_request->ether_dhost, &floodAddr, ETHER_ADDR_LEN);
 
             arp_head_request->ar_hrd = ntohs(arp_hrd_ethernet);
-	    arp_head_request->ar_pro = ntohs(ethertype_arp);
+	    arp_head_request->ar_pro = ntohs(ethertype_ip);
 	    arp_head_request->ar_hln = 6;
 	    arp_head_request->ar_pln = 4;
 	    arp_head_request->ar_op = ntohs(arp_op_request);

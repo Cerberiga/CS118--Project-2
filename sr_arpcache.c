@@ -12,25 +12,98 @@
 #include "sr_protocol.h"
 
 void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
+/*    printf("HANDLING ARPREQ\n");*/
     time_t now;
     time(&now);
     if(difftime(now, request->sent) > 1.0){
-	if(request->times_sent >= 5){
-	    int eth_head_len = sizeof(sr_ethernet_hdr_t);
-	    int ip_head_len = sizeof(sr_ip_hdr_t);
-	    sr_ethernet_hdr_t* eth_head = (sr_ethernet_hdr_t*) (request->packets);	    	    
-	    sr_ip_hdr_t* ip_head = (sr_ip_hdr_t *) (request->packets + eth_head_len);
-	     	    
-/*send icmp host unreachable to source addr of all pkts waiting */
-	    sr_arpreq_destroy(&sr->cache, request);
-	}
-	else{
-/*	    ip addresses are in little endian make sure to print them
-	    send arp request to all interfaces*/
-	    
-	    request->sent = now;
-	    request->times_sent++;
-	}
+    if(request->times_sent >= 5){
+        /*Things that need to be changed:dest mac, src mac,  src ip, dest ip*/
+        struct sr_packet* current = request->packets;
+        while(current != 0){ 
+        
+                int eth_head_len = sizeof(sr_ethernet_hdr_t);   
+            int ip_head_len = sizeof(sr_ip_hdr_t);
+        sr_ethernet_hdr_t* init_eth = (sr_ethernet_hdr_t*) (current->buf);
+        sr_ip_hdr_t* init_ip =  (sr_ip_hdr_t*) (current->buf + eth_head_len);
+
+            uint8_t *icmp_message = calloc(eth_head_len + ip_head_len + sizeof(sr_icmp_t3_hdr_t), sizeof(uint8_t));
+            sr_ethernet_hdr_t * eth_head_icmp = (sr_ethernet_hdr_t*) icmp_message;
+            sr_ip_hdr_t * ip_head_icmp = (sr_ip_hdr_t*)(icmp_message + eth_head_len);
+            sr_icmp_t3_hdr_t * icmp_head_icmp = (sr_icmp_t3_hdr_t*)(icmp_message + eth_head_len + ip_head_len);
+            
+        eth_head_icmp->ether_type = ntohs(ethertype_ip);
+        memcpy(eth_head_icmp->ether_dhost, init_eth->ether_shost, ETHER_ADDR_LEN);
+        memcpy(eth_head_icmp->ether_shost, init_eth->ether_dhost, ETHER_ADDR_LEN);
+            
+        /*ip_head_icmp->ip_tos = 5;  reliability?*/
+            ip_head_icmp->ip_hl = 5; /*number of 4 byte in the header*/
+            /*ip_head_icmp->ip_id = 0x2345; check this if right*/
+            /*ip_head_icmp->ip_off = 0; check this if right*/
+            ip_head_icmp->ip_ttl = 255; /*big ttl*/
+            ip_head_icmp->ip_p = ntohs(ip_protocol_icmp);
+            ip_head_icmp->ip_sum = cksum(ip_head_icmp, ip_head_icmp->ip_hl*4);  
+        ip_head_icmp->ip_src = sr_get_interface(sr, current->iface)->ip; /* check this */
+        ip_head_icmp->ip_dst = init_ip->ip_src;
+
+            icmp_head_icmp->icmp_type = 3;
+            icmp_head_icmp->icmp_code = 1;
+            icmp_head_icmp->icmp_sum = cksum(icmp_head_icmp, sizeof(sr_icmp_t3_hdr_t));
+        memcpy(icmp_head_icmp->data, init_ip, sizeof(sr_ip_hdr_t) + 8); 
+        /* + copy over data if any?*/
+
+        printf("--------\n SENDING ICMP PACKET: \n");
+        printf("To: \n");
+        print_addr_ip_int(ntohl(ip_head_icmp->ip_dst));
+        printf("From: \n");
+        print_addr_ip_int(ntohl(ip_head_icmp->ip_src));
+        printf("------\n");
+            sr_send_packet(sr, icmp_message, eth_head_len + ip_head_len + sizeof(sr_icmp_t3_hdr_t), current->iface);
+        current = current->next;
+        }
+        /*send icmp host unreachable to source addr of all pkts waiting */
+             
+        sr_arpreq_destroy(&(sr->cache), request);
+    }
+    else{
+/*      ip addresses are in little endian make sure to print them
+        send arp request to all interfaces*/
+        struct sr_if * iface_pt = sr->if_list;
+        uint8_t * arp_request = calloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t),sizeof(uint8_t));
+        sr_ethernet_hdr_t * eth_head_request = (sr_ethernet_hdr_t*) arp_request;
+        sr_arp_hdr_t * arp_head_request = (sr_arp_hdr_t *) (arp_request + sizeof(sr_ethernet_hdr_t)); 
+
+        eth_head_request->ether_type = ntohs(ethertype_arp); 
+        unsigned long floodAddr = 0xFFFFFFFFFFFF; 
+        memcpy(eth_head_request->ether_dhost, &floodAddr, ETHER_ADDR_LEN);
+
+            arp_head_request->ar_hrd = ntohs(arp_hrd_ethernet);
+        arp_head_request->ar_pro = ntohs(ethertype_ip);
+        arp_head_request->ar_hln = 6;
+        arp_head_request->ar_pln = 4;
+        arp_head_request->ar_op = ntohs(arp_op_request);
+        arp_head_request->ar_tip = request->ip;
+        memcpy(arp_head_request->ar_tha, &floodAddr, ETHER_ADDR_LEN);
+
+            while(iface_pt != 0){
+        memcpy(eth_head_request->ether_shost, iface_pt->addr, ETHER_ADDR_LEN);
+        memcpy(arp_head_request->ar_sha, eth_head_request->ether_shost, ETHER_ADDR_LEN);
+        arp_head_request->ar_sip = iface_pt->ip;
+        printf("-------\n SENDING ARP REQUEST: \n");
+        printf("Looking for: \n");
+        print_addr_ip_int(ntohl(arp_head_request->ar_tip));
+        printf("From: \n");
+        print_addr_ip_int(ntohl(arp_head_request->ar_sip));
+        printf("Mac Flood Addr:\n");
+        print_addr_eth(eth_head_request->ether_dhost);
+        printf("------\n");
+        sr_send_packet(sr, arp_request, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), iface_pt->name);
+    /*  printf("Sending Succeeded\n"); */
+        iface_pt = iface_pt->next;
+        }
+       /*printf("Done With Interfaces\n");*/
+        request->sent = now;
+        request->times_sent++;
+    }
     }
 }
 /* 
@@ -42,16 +115,22 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
     /* Fill this in */
     struct sr_arpreq *current;
     struct sr_arpreq *nextSav;
-    
-    if(!(current = sr->cache.requests)){
-	return;
+   
+    current = sr->cache.requests; 
+    if(current == 0){
+    return;
     }
-    while((nextSav = current->next) != 0){
-	handle_arpreq(sr, current);
-	current = nextSav;
+    nextSav = current->next;
+    while(current != 0){
+    handle_arpreq(sr, current);
+    if(nextSav == 0){
+        break;
+    }
+    current = nextSav;
+    nextSav = current->next;
     }
     /*for each request on sr->cache.requests
-	handle_arpreq*/
+    handle_arpreq */
 }
 
 /* You should not need to touch the rest of this code. */
@@ -118,7 +197,7 @@ struct sr_arpreq *sr_arpcache_queuereq(struct sr_arpcache *cache,
         new_pkt->buf = (uint8_t *)malloc(packet_len);
         memcpy(new_pkt->buf, packet, packet_len);
         new_pkt->len = packet_len;
-		new_pkt->iface = (char *)malloc(sr_IFACE_NAMELEN);
+        new_pkt->iface = (char *)malloc(sr_IFACE_NAMELEN);
         strncpy(new_pkt->iface, iface, sr_IFACE_NAMELEN);
         new_pkt->next = req->packets;
         req->packets = new_pkt;
@@ -278,4 +357,3 @@ void *sr_arpcache_timeout(void *sr_ptr) {
     
     return NULL;
 }
-

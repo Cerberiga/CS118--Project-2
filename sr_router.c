@@ -85,6 +85,21 @@
   return gateway;
 }
 
+char * out_interface(struct sr_instance* sr, uint32_t gateway)
+{
+  struct sr_rt * routing_entry = sr->routing_table;
+  while(routing_entry != NULL)
+  {
+    if(gateway == routing_entry->gw.s_addr)
+    {
+      return routing_entry->interface;
+    }
+    routing_entry = routing_entry->next;
+  }
+  return NULL;
+}
+
+
 enum icmp_type {
   echo_reply_type = 0x00,
   echo_request_type = 0x08,
@@ -253,6 +268,11 @@ void sr_handlepacket(struct sr_instance* sr,
           } 
           else
           {
+	    memcpy(eth_head->ether_dhost, mapping->mac, ETHER_ADDR_LEN);
+	    char* out_int = out_interface(sr, gateway);
+	    struct sr_if* if_entry = sr_get_interface(sr, out_int);
+	    memcpy(eth_head->ether_shost, if_entry->addr, ETHER_ADDR_LEN);
+	    sr_send_packet(sr, packet, len, out_int);
             return;
           }
 
@@ -333,8 +353,6 @@ void sr_handlepacket(struct sr_instance* sr,
               sr_ethernet_hdr_t * eth_head_waiting = (sr_ethernet_hdr_t *) temppkt->buf;
               memcpy(eth_head_waiting->ether_dhost, eth_head->ether_shost, ETHER_ADDR_LEN);
               memcpy(eth_head_waiting->ether_shost, eth_head->ether_dhost, ETHER_ADDR_LEN);
-              printf("sending packet\n");
-              print_hdrs(temppkt->buf, temppkt->len);
               sr_send_packet(sr, temppkt->buf, temppkt->len, interface);
               temppkt = temppkt->next;
             }

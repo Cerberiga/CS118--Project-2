@@ -205,8 +205,6 @@ void sr_handlepacket(struct sr_instance* sr,
             temp_icmp->icmp_sum = 0;
             temp_icmp->icmp_sum = cksum(temp_icmp, sizeof(sr_icmp_t3_hdr_t));
             icmp_pu[20] = 64;
-            temp_ip->ip_id = 0;
-            temp_ip->ip_ttl = 64;
             temp_ip->ip_sum = 0;
             temp_ip->ip_sum = cksum(temp_ip, 20);
 
@@ -248,14 +246,38 @@ void sr_handlepacket(struct sr_instance* sr,
           ip_head->ip_sum = cksum(ip_head, ip_head->ip_hl*4);
           if(ip_head->ip_ttl == 0)
           {
-          /*ICMP TIME EXCEEDED*/
+	    struct sr_if * if_table = sr_get_interface(sr, interface);
+	    uint8_t* icmp_te = send_icmp(ttl_expired, time_exceeded, if_table->ip, eth_head->ether_dhost, ip_head->ip_src, eth_head->ether_shost);
+	    sr_ip_hdr_t * temp_ip = (sr_ip_hdr_t *) (icmp_te + eth_head_len);
+	    sr_icmp_t3_hdr_t * temp_icmp = (sr_icmp_t3_hdr_t *) (icmp_te + eth_head_len + sizeof(sr_ip_hdr_t));
+	    temp_ip->ip_sum = 0;
+	    temp_ip->ip_sum = cksum(temp_ip, sizeof(sr_ip_hdr_t));
+	    memcpy(temp_icmp->data, ip_head, sizeof(sr_ip_hdr_t));
+	    memcpy(temp_icmp->data + sizeof(sr_ip_hdr_t), packet+eth_head_len+sizeof(sr_ip_hdr_t), 8);
+	    temp_icmp->icmp_sum = 0;
+	    temp_icmp->icmp_sum = cksum(temp_icmp, sizeof(sr_icmp_t3_hdr_t));
+	    print_hdrs(icmp_te, eth_head_len + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+	    sr_send_packet(sr, icmp_te, eth_head_len + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
+            /*ICMP TIME EXCEEDED*/
             return;
           }
 
           int gateway = resolve_rt(sr, ip_head->ip_dst);
           if(gateway ==  -1)
           {
-            printf("\nNETWORK UNREACHABLE\n");
+	    struct sr_if * if_table = sr_get_interface(sr, interface);
+	    uint8_t* icmp_nu = send_icmp(net_unreachable, dest_unreachable, if_table->ip, eth_head->ether_dhost, ip_head->ip_src, eth_head->ether_shost);
+	    sr_ip_hdr_t * temp_ip = (sr_ip_hdr_t *) (icmp_nu + eth_head_len);
+	    sr_icmp_t3_hdr_t * temp_icmp = (sr_icmp_t3_hdr_t *) (icmp_nu + eth_head_len + sizeof(sr_ip_hdr_t));
+	    temp_ip->ip_sum = 0;
+	    temp_ip->ip_sum = cksum(temp_ip, sizeof(sr_ip_hdr_t));
+	    memcpy(temp_icmp->data, ip_head, sizeof(sr_ip_hdr_t));
+	    memcpy(temp_icmp->data + sizeof(sr_ip_hdr_t), packet+eth_head_len+sizeof(sr_ip_hdr_t), 8);
+	    temp_icmp->icmp_sum = 0;
+	    temp_icmp->icmp_sum = cksum(temp_icmp, sizeof(sr_icmp_t3_hdr_t));
+	    print_hdrs(icmp_nu, eth_head_len + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+	    sr_send_packet(sr, icmp_nu, eth_head_len + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
+           
           /*ICMP NETWORK UNREACHABLE*/
             return;
           }
@@ -301,6 +323,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
       if(ntohs(arp_head->ar_op)==1)
       {
+	printf("ARP REQUEST RECEIVED\n");
         if(arp_head->ar_tip == sr_get_interface(sr, interface)->ip)
         {
           uint8_t *arp_reply = calloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), sizeof(uint8_t));
@@ -341,12 +364,12 @@ void sr_handlepacket(struct sr_instance* sr,
         struct sr_arpreq *tempreqs = sr_arpcache_insert(&sr->cache, eth_head->ether_shost, arp_head->ar_sip);
         if(tempreqs != NULL)
         {
-          printf("temp ip is: ");
+          /*printf("temp ip is: ");
           print_addr_ip_int(tempreqs->ip);
           printf("\nsource ip is: ");
           print_addr_ip_int(ntohl(arp_head->ar_sip));
           printf("\n");
-            printf("ip found\n");
+            printf("ip found\n");*/
             struct sr_packet *temppkt = tempreqs->packets;
             while (temppkt != NULL)
             {

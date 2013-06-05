@@ -88,14 +88,14 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq* request){
         memcpy(eth_head_request->ether_shost, iface_pt->addr, ETHER_ADDR_LEN);
         memcpy(arp_head_request->ar_sha, eth_head_request->ether_shost, ETHER_ADDR_LEN);
         arp_head_request->ar_sip = iface_pt->ip;
-        printf("-------\n SENDING ARP REQUEST: \n");
+        /*printf("-------\n SENDING ARP REQUEST: \n");
         printf("Looking for: \n");
         print_addr_ip_int(ntohl(arp_head_request->ar_tip));
         printf("From: \n");
         print_addr_ip_int(ntohl(arp_head_request->ar_sip));
         printf("Mac Flood Addr:\n");
         print_addr_eth(eth_head_request->ether_dhost);
-        printf("------\n");
+        printf("------\n");*/
         sr_send_packet(sr, arp_request, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), iface_pt->name);
     /*  printf("Sending Succeeded\n"); */
         iface_pt = iface_pt->next;
